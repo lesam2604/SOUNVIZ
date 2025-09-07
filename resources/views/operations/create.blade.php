@@ -1,4 +1,9 @@
 @extends('layouts.app')
+@php
+  use Illuminate\Support\Facades\Auth;
+  $user = Auth::user();
+  $isPartner = $user && $user->hasRole('partner');
+@endphp
 
 @section('cssPlugins')
 @endsection
@@ -11,17 +16,23 @@
     </div>
     <div class="card-body">
       <form id="form" class="row" novalidate>
+        @if(!$isPartner)
         <div class="col-12 col-lg-6 mb-3">
           <label for="clientType" class="form-label">Type de client</label>
           <select id="clientType" class="form-select">
             <option value="partner" selected>Partenaire</option>
-            <option value="extra_client">Client (manuel)</option>
+            <option value="extra_client">Client extra</option>
+            <option value="manual">Client (manuel)</option>
           </select>
         </div>
         <div class="col-12 col-lg-6 mb-3" id="partnerSelectBlock">
           <label for="partnerId" class="form-label">Partenaire (optionnel)</label>
           <select id="partnerId" class="form-select" style="width: 100%"></select>
           <div class="form-text">Laissez vide pour créer pour un client manuel.</div>
+        </div>
+        <div class="col-12 col-lg-6 mb-3" id="extraClientSelectBlock" style="display:none;">
+          <label for="extraClientId" class="form-label">Client extra</label>
+          <select id="extraClientId" class="form-select" style="width:100%"></select>
         </div>
         <div id="manualClientBlock" class="col-12 mt-2" style="display:none;">
           <div class="alert alert-info">
@@ -50,6 +61,7 @@
             </div>
           </div>
         </div>
+        @endif
         <div class="text-center" id="blockSubmit">
           <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Sauvegarder</button>
         </div>
@@ -63,11 +75,15 @@
       <h4 class="mb-0">Commissions</h4>
     </div>
     <div class="card-body">
+      @if(!$isPartner)
       <div class="row g-3 mb-3">
         <div class="col-12 col-lg-6">
-          <label for="manual_fee" class="form-label">Frais de course (manuel)</label>
-          <input type="number" inputmode="decimal" class="form-control" id="manual_fee" placeholder="Laissez vide pour automatique">
-          <div class="form-text">Si renseigné, ce montant sera utilisé comme frais de course.</div>
+          <label for="payment_method" class="form-label">Moyen de paiement</label>
+          <select id="payment_method" class="form-select">
+            <option value="Marchand">Marchand</option>
+            <option value="MomoPay">Momopay</option>
+            <option value="Autres">Autres</option>
+          </select>
         </div>
         <div class="col-12 col-lg-6">
           <label for="manual_platform_commission" class="form-label">Commission de la plateforme (manuel)</label>
@@ -75,6 +91,7 @@
           <div class="form-text">Si renseigné, la commission partenaire sera calculée comme (frais - commission plateforme).</div>
         </div>
       </div>
+      @endif
       <table class="table table-bordered">
         <tbody>
           <tr>
@@ -86,8 +103,8 @@
             <td id="opFee" class="fw-bold"></td>
           </tr>
           <tr>
-            <th>Montant total a payer</th>
-            <td id="opTotalAmount" class="fw-bold text-danger"></td>
+            <th>Montant final</th>
+            <td id="opFinalAmount" class="fw-bold text-danger"></td>
           </tr>
           <tr class="d-none">
             <th>Votre solde</th>
@@ -97,7 +114,6 @@
             <th>Solde requis</th>
             <td id="opRequired" class="fw-bold"></td>
           </tr>
-          
           <tr>
             <th>Commission</th>
             <td id="opCommission" class="fw-bold"></td>
@@ -116,9 +132,14 @@
   <script>
     (function() {
       $(function() {
-        // Redéfinir updateFeeAndCommission pour prendre en compte la commission plateforme manuelle
+        // Redéfinir updateFeeAndCommission pour le calcul dynamique des frais/commissions
         const originalUpdate = window.updateFeeAndCommission;
         window.updateFeeAndCommission = function(amount = null) {
+          // Pour les partenaires, conserver le comportement existant
+          if (window.USER?.hasRole && window.USER.hasRole('partner')) {
+            if (typeof originalUpdate === 'function') return originalUpdate(amount);
+            return;
+          }
           try {
             const parseIntSafe = (v) => {
               if (v === null || v === undefined) return 0;
@@ -132,30 +153,56 @@
             if (!opType) { if (typeof originalUpdate === 'function') return originalUpdate(amount); return; }
 
             const inputAmt = parseIntSafe(amount ?? (opType.amount_field ? ($('#' + opType.amount_field).val() || 0) : 0));
-            const effFee = parseIntSafe($('#manual_fee').val() || 0);
+            const method = $('#payment_method').val();
+            let rate = 0;
+            if (method === 'MomoPay') rate = 0.005;
+            const paymentFee = Math.round(inputAmt * rate);
             const effPlat = parseIntSafe($('#manual_platform_commission').val() || 0);
+            const finalAmt = Math.max(inputAmt - paymentFee - effPlat, 0);
 
-            // Si au moins un des champs manuels est renseigné, on force le nouveau calcul
-            if ($('#manual_fee').val() !== '' || $('#manual_platform_commission').val() !== '') {
-              const totalDebited = inputAmt + effFee + effPlat;
-              $('#opAmount').html(formatAmount(inputAmt));
-              $('#opFee').html(formatAmount(effFee));
-              $('#opCommission').html(formatAmount(0));
-              $('#opTotalAmount').html(formatAmount(totalDebited));
-              $('#opRequired').html(formatAmount(totalDebited));
-              return;
-            }
-
-            // Sinon, fallback sur le comportement existant
-            if (typeof originalUpdate === 'function') originalUpdate(amount);
-            // Si c'est un collaborateur, considérer la commission partenaire comme 0
-            if (window.USER?.hasRole && window.USER.hasRole('collab')) {
-              $('#opCommission').html(formatAmount(0));
-            }
+            $('#opAmount').html(formatAmount(inputAmt));
+            $('#opFee').html(formatAmount(paymentFee));
+            $('#opCommission').html(formatAmount(effPlat));
+            $('#opFinalAmount').html(formatAmount(finalAmt));
+            $('#opRequired').html(formatAmount(finalAmt));
           } catch (e) {
             try { if (typeof originalUpdate === 'function') return originalUpdate(amount); } catch (_) {}
           }
         };
+
+        $('#payment_method, #manual_platform_commission').on('input change', function(){
+          const opTypeCode = $('#opTypeCode').val();
+          const opType = (window.SETTINGS?.opTypes || []).find(function(ot){ return ot.code === opTypeCode; });
+          const amt = opType && opType.amount_field ? ($('#' + opType.amount_field).val() || 0) : 0;
+          updateFeeAndCommission(amt);
+        });
+
+        // Gestion du type de client (partenaire / client extra / manuel)
+        const applyClientTypeToggle = () => {
+          const clientType = $('#clientType').val();
+          if (!clientType || clientType === 'partner') {
+            $('#partnerSelectBlock').show();
+            $('#extraClientSelectBlock').hide();
+            $('#manualClientBlock').hide();
+          } else if (clientType === 'extra_client') {
+            $('#partnerSelectBlock').hide();
+            $('#manualClientBlock').hide();
+            $('#extraClientSelectBlock').show();
+          } else {
+            $('#partnerSelectBlock').hide();
+            $('#extraClientSelectBlock').hide();
+            if (!$('#requester_name').val() && window.USER?.full_name) {
+              $('#requester_name').val(window.USER.full_name);
+            }
+            $('#manualClientBlock').show();
+          }
+        };
+        $('#clientType').off('change').on('change', applyClientTypeToggle);
+        applyClientTypeToggle();
+        if (typeof populateExtraClients === 'function') {
+          populateExtraClients('#extraClientId');
+        }
+
         // Remplacer le submit handler si inactif
         $('#form').off('submit').on('submit', async function(e) {
           e.preventDefault();
@@ -194,7 +241,7 @@
               }
             }
 
-            // Déterminer endpoint + données client manuel si besoin
+            // Déterminer endpoint + données client si besoin
             let endpoint = `${API_BASEURL}/operations/${opType.code}/store`;
             const clientType = $('#clientType').val() || 'partner';
             const selectedPartnerId = $('#partnerId').val();
@@ -203,6 +250,9 @@
                 return Toast.fire('Veuillez sélectionner un partenaire', '', 'error');
               }
               endpoint = `${API_BASEURL}/operations/${opType.code}/store-for-partner/${selectedPartnerId}`;
+            } else if (clientType === 'extra_client') {
+              formData.append('extra_client_id', $('#extraClientId').val() || '');
+              endpoint = `${API_BASEURL}/operations/${opType.code}/store-without-partner`;
             } else {
               formData.append('client_full_name', $('#client_full_name').val() || '');
               formData.append('client_phone', $('#client_phone').val() || '');
@@ -210,6 +260,10 @@
               formData.append('requester_name', $('#requester_name').val() || (window.USER?.full_name || ''));
               endpoint = `${API_BASEURL}/operations/${opType.code}/store-without-partner`;
             }
+
+            // Champs additionnels attendus par l'API
+            formData.append('payment_method', $('#payment_method').val() || '');
+            formData.append('client_type', clientType);
 
             // Envoi
             swalLoading();

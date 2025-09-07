@@ -63,6 +63,13 @@ class OperationController extends Controller
         // Champs de commissions manuelles (si fournis)
         $data['manual_fee'] = $request->input('manual_fee');
         $data['manual_platform_commission'] = $request->input('manual_platform_commission');
+        // 🔧 PATCH: nouveaux champs
+        $data['payment_method'] = $request->input('payment_method');
+        $data['client_type'] = $request->input('client_type');
+        $data['extra_client_id'] = $request->input('extra_client_id');
+        if ($this->opType->code === 'account_recharge' && isset($data['payment_method'])) {
+            $data['sender_phone_number_type'] = $data['payment_method'];
+        }
         // Indicateur: création par collaborateur => commission partenaire = 0
         $data['created_by_collab'] = $authUser->hasRole('collab') ? 'true' : 'false';
 
@@ -120,6 +127,13 @@ class OperationController extends Controller
         // Champs de commissions manuelles (si fournis)
         $data['manual_fee'] = $request->input('manual_fee');
         $data['manual_platform_commission'] = $request->input('manual_platform_commission');
+        // 🔧 PATCH: nouveaux champs
+        $data['payment_method'] = $request->input('payment_method');
+        $data['client_type'] = $request->input('client_type');
+        $data['extra_client_id'] = $request->input('extra_client_id');
+        if ($this->opType->code === 'account_recharge' && isset($data['payment_method'])) {
+            $data['sender_phone_number_type'] = $data['payment_method'];
+        }
         // Indicateur: création par collaborateur => commission partenaire = 0
         $data['created_by_collab'] = $authUser->hasRole('collab') ? 'true' : 'false';
 

@@ -383,6 +383,17 @@ class OperationService
             }
         }
 
+        // 🔧 PATCH: champs additionnels à persister dans data
+        if (isset($data['payment_method'])) {
+            $storeData['data']['payment_method'] = $data['payment_method'];
+        }
+        if (isset($data['client_type'])) {
+            $storeData['data']['client_type'] = $data['client_type'];
+        }
+        if (isset($data['extra_client_id'])) {
+            $storeData['data']['extra_client_id'] = $data['extra_client_id'];
+        }
+
         return $storeData;
     }
 
