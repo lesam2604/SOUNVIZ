@@ -1,0 +1,177 @@
+{
+  "name": "Recharge de carte",
+  "code": "card_recharge",
+  "prefix": "RCA",
+  "icon_class": "fas fa-mobile-alt",
+  "amount_field": "amount",
+  "position": 3,
+  "fields": {
+    "card_type": {
+      "type": "select",
+      "label": "Type de carte",
+      "attributes": [],
+      "options": [
+        "ECOBANK",
+        "UBA"
+      ],
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 1
+    },
+    "uba_type": {
+      "type": "text",
+      "label": "Type de carte UBA",
+      "attributes": [],
+      "options": null,
+      "required": [
+        "card_type",
+        "UBA"
+      ],
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 2
+    },
+    "card_id": {
+      "type": "card",
+      "label": "Id de la carte",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 3
+    },
+    "card_four_digits": {
+      "type": "text",
+      "label": "4 derniers chiffres",
+      "attributes": {
+        "minlength": 4,
+        "maxlength": 4
+      },
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 4
+    },
+    "client_first_name": {
+      "type": "text",
+      "label": "Prenom du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 5
+    },
+    "client_last_name": {
+      "type": "text",
+      "label": "Nom du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 6
+    },
+    "amount": {
+      "type": "number",
+      "label": "Montant a recharger",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": true,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 7
+    }
+  },
+  "fees": [
+    {
+      "breakpoint": "999",
+      "value": "100"
+    },
+    {
+      "breakpoint": "2499",
+      "value": "150"
+    },
+    {
+      "breakpoint": "4999",
+      "value": "250"
+    },
+    {
+      "breakpoint": "9999",
+      "value": "300"
+    },
+    {
+      "breakpoint": "24999",
+      "value": "400"
+    },
+    {
+      "breakpoint": "39999",
+      "value": "450"
+    },
+    {
+      "breakpoint": "",
+      "value": "1%"
+    }
+  ],
+  "commissions": [
+    {
+      "breakpoint": "999",
+      "value": "50"
+    },
+    {
+      "breakpoint": "2499",
+      "value": "100"
+    },
+    {
+      "breakpoint": "4999",
+      "value": "150"
+    },
+    {
+      "breakpoint": "9999",
+      "value": "175"
+    },
+    {
+      "breakpoint": "24999",
+      "value": "250"
+    },
+    {
+      "breakpoint": "39999",
+      "value": "300"
+    },
+    {
+      "breakpoint": "",
+      "value": "60%"
+    }
+  ]
+}

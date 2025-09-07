@@ -1,0 +1,80 @@
+{% load widget_tweaks %}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ouvrir un compte — General Euros Bank</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { primary: '#1a365d', primaryDark: '#12284a', accent: '#0ea5e9' }, fontFamily: { sans: ['Inter','system-ui','Segoe UI','Roboto','Helvetica','Arial','sans-serif'] }, boxShadow: { soft: '0 10px 25px -10px rgba(26,54,93,0.25)' } } } }
+  </script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-50 font-sans text-gray-800">
+  <div class="min-h-screen grid lg:grid-cols-2">
+    <!-- Left: Form -->
+    <div class="flex items-center justify-center p-6 sm:p-10">
+      <div class="w-full max-w-lg bg-white border rounded-2xl p-6 sm:p-8 shadow-soft">
+        <a href="/" class="inline-flex items-center gap-2 text-primary hover:underline">
+          <i class="fa-solid fa-arrow-left"></i> Retour
+        </a>
+        <h1 class="mt-4 text-2xl font-bold text-primary">Créer votre compte</h1>
+        <p class="mt-1 text-sm text-gray-600">Rejoignez des milliers d’utilisateurs en quelques minutes.</p>
+
+        {% if messages %}
+          <div class="mt-3 space-y-2">
+            {% for message in messages %}
+              <div class="px-3 py-2 rounded text-sm bg-red-50 text-red-700" role="alert">{{ message }}</div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <form method="post" class="mt-6 space-y-4" enctype="multipart/form-data" novalidate>
+          {% csrf_token %}
+          <div class="grid sm:grid-cols-2 gap-4">
+            {% for field in user_form %}
+              <div class="sm:col-span-1">
+                <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700">{{ field.label }}</label>
+                {{ field|add_class:"mt-1 w-full rounded-lg border-gray-300 focus:ring-primary focus:border-primary" }}
+                {% if field.help_text %}
+                  <p class="mt-1 text-xs text-gray-500">{{ field.help_text }}</p>
+                {% endif %}
+                {% if field.errors %}
+                  <p class="mt-1 text-xs text-red-600">{{ field.errors|join:", " }}</p>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+
+          <button type="submit" class="w-full inline-flex items-center justify-center px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-primaryDark transition">
+            <i class="fa-solid fa-user-plus mr-2"></i> Créer un compte
+          </button>
+        </form>
+
+        <p class="mt-6 text-sm text-gray-600">
+          Déjà inscrit ? <a class="text-primary hover:underline" href="{% url 'login' %}">Se connecter</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Right: Trust / Security -->
+    <div class="hidden lg:flex items-center justify-center p-10 bg-white">
+      <div class="max-w-md">
+        <div class="w-16 h-16 rounded-2xl bg-primary text-white flex items-center justify-center shadow-soft">
+          <i class="fa-solid fa-lock text-2xl"></i>
+        </div>
+        <h2 class="mt-6 text-3xl font-bold text-primary">Inscription sécurisée</h2>
+        <p class="mt-3 text-gray-600">Vos informations sont protégées par des normes bancaires strictes.</p>
+        <ul class="mt-6 space-y-2 text-sm text-gray-700">
+          <li><i class="fa-solid fa-check text-accent mr-2"></i> Chiffrement AES‑256</li>
+          <li><i class="fa-solid fa-check text-accent mr-2"></i> Vérifications anti‑fraude</li>
+          <li><i class="fa-solid fa-check text-accent mr-2"></i> Conformité RGPD</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+

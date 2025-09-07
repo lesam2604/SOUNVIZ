@@ -1,0 +1,106 @@
+{
+  "name": "Activation CANAL+",
+  "code": "canal_activation",
+  "prefix": "ADC",
+  "icon_class": "fas fa-tv",
+  "amount_field": null,
+  "position": 5,
+  "fields": {
+    "decoder_number": {
+      "type": "text",
+      "label": "Numero du decodeur",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 1
+    },
+    "client_first_name": {
+      "type": "text",
+      "label": "Prenom du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 2
+    },
+    "client_last_name": {
+      "type": "text",
+      "label": "Nom du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 3
+    },
+    "client_phone_number": {
+      "type": "text",
+      "label": "Numero de telephone du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 4
+    },
+    "client_email": {
+      "type": "email",
+      "label": "Email du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 5
+    },
+    "client_address": {
+      "type": "text",
+      "label": "Adresse du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 6
+    }
+  },
+  "fees": [
+    {
+      "breakpoint": "",
+      "value": "0"
+    }
+  ],
+  "commissions": [
+    {
+      "breakpoint": "",
+      "value": "0"
+    }
+  ]
+}

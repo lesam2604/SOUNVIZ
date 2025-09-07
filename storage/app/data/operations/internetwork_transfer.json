@@ -1,0 +1,116 @@
+{
+  "name": "Transfert inter-r\u00e9seau",
+  "code": "internetwork_transfer",
+  "prefix": "TIR",
+  "icon_class": "fas fa-exchange-alt",
+  "amount_field": "amount",
+  "position": 12,
+  "fields": {
+    "sender_network": {
+      "type": "select",
+      "label": "Reseau envoyeur",
+      "attributes": [],
+      "options": [
+        "MTN",
+        "Moov",
+        "Celtis",
+        "B-Mo"
+      ],
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 1
+    },
+    "sender_phone_number": {
+      "type": "text",
+      "label": "Numero de telephone envoyeur",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 2
+    },
+    "sender_reference": {
+      "type": "text",
+      "label": "Reference envoyeur",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 3
+    },
+    "amount": {
+      "type": "number",
+      "label": "Montant a envoyer",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": true,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 4
+    },
+    "recipient_network": {
+      "type": "select",
+      "label": "Reseau envoyeur",
+      "attributes": [],
+      "options": [
+        "MTN",
+        "Moov",
+        "Celtis",
+        "B-Mo"
+      ],
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 5
+    },
+    "recipient_phone_number": {
+      "type": "text",
+      "label": "Numero de telephone envoyeur",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 6
+    }
+  },
+  "fees": [
+    {
+      "breakpoint": "",
+      "value": "0"
+    }
+  ],
+  "commissions": [
+    {
+      "breakpoint": "",
+      "value": "0"
+    }
+  ]
+}

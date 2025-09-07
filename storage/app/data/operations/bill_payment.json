@@ -1,0 +1,123 @@
+{
+  "name": "Payement de facture SBEE/SONEB",
+  "code": "bill_payment",
+  "prefix": "PFA",
+  "icon_class": "fas fa-file-invoice-dollar",
+  "amount_field": "amount",
+  "position": 7,
+  "fields": {
+    "bill_type": {
+      "type": "select",
+      "label": "Type de facture",
+      "attributes": [],
+      "options": [
+        "SBEE",
+        "SONEB"
+      ],
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 1
+    },
+    "policy_number": {
+      "type": "text",
+      "label": "Numero de police",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 2
+    },
+    "client_first_name": {
+      "type": "text",
+      "label": "Prenom du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 3
+    },
+    "client_last_name": {
+      "type": "text",
+      "label": "Nom du client",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 4
+    },
+    "cutoff_date": {
+      "type": "date",
+      "label": "Date de coupure",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": true,
+      "position": 5
+    },
+    "receipt_picture": {
+      "type": "file",
+      "label": "Fichier de la facture",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": false,
+      "lte_today": false,
+      "position": 6
+    },
+    "amount": {
+      "type": "number",
+      "label": "Montant",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": true,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 7
+    }
+  },
+  "fees": [
+    {
+      "breakpoint": "",
+      "value": "300"
+    }
+  ],
+  "commissions": [
+    {
+      "breakpoint": "",
+      "value": "125"
+    }
+  ]
+}

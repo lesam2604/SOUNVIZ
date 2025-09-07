@@ -1,0 +1,7 @@
+*
+!.gitignore
+!data/
+!data/**
+!public/
+!public/thumbnails
+!public/uploads

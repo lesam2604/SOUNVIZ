@@ -1,0 +1,59 @@
+{
+  "name": "Retrait du solde",
+  "code": "balance_withdrawal",
+  "prefix": "RTS",
+  "icon_class": "fas fa-money-bill",
+  "amount_field": null,
+  "position": 13,
+  "fields": {
+    "network": {
+      "type": "select",
+      "label": "Reseau recepteur",
+      "attributes": [],
+      "options": [
+        "MTN",
+        "Moov",
+        "Celtis",
+        "B-Mo"
+      ],
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 1
+    },
+    "phone_number": {
+      "type": "text",
+      "label": "Numero de telephone recepteur",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 2
+    },
+    "amount": {
+      "type": "number",
+      "label": "Montant",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": true,
+      "is_amount": true,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 3
+    }
+  },
+  "fees": null,
+  "commissions": null
+}

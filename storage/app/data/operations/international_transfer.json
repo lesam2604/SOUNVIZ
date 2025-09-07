@@ -1,0 +1,97 @@
+{
+  "name": "Transfert international",
+  "code": "international_transfer",
+  "prefix": "TIN",
+  "icon_class": "fas fa-globe-africa",
+  "amount_field": null,
+  "position": 11,
+  "fields": {
+    "type": {
+      "type": "select",
+      "label": "Type",
+      "attributes": [],
+      "options": [
+        "Western",
+        "RIA",
+        "Moneygram",
+        "Small World"
+      ],
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 1
+    },
+    "secret_code": {
+      "type": "text",
+      "label": "Code PIN ou code secret",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": true,
+      "lte_today": false,
+      "position": 2
+    },
+    "idcard_picture": {
+      "type": "file",
+      "label": "Piece d'identite",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": false,
+      "lte_today": false,
+      "position": 3
+    },
+    "form_picture": {
+      "type": "file",
+      "label": "Formulaire",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": false,
+      "lte_today": false,
+      "position": 4
+    },
+    "receipt_picture": {
+      "type": "file",
+      "label": "Recu",
+      "attributes": [],
+      "options": null,
+      "required": true,
+      "unique": false,
+      "is_amount": false,
+      "stored": true,
+      "updated": true,
+      "listed": false,
+      "lte_today": false,
+      "position": 5
+    }
+  },
+  "fees": [
+    {
+      "breakpoint": "",
+      "value": "0"
+    }
+  ],
+  "commissions": [
+    {
+      "breakpoint": "",
+      "value": "0"
+    }
+  ]
+}

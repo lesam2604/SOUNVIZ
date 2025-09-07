@@ -1,0 +1,1349 @@
+diff --git a/app/Http/Controllers/Admin/OperationCancelController.php b/app/Http/Controllers/Admin/OperationCancelController.php
+index d408779..eee710e 100644
+--- a/app/Http/Controllers/Admin/OperationCancelController.php
++++ b/app/Http/Controllers/Admin/OperationCancelController.php
+@@ -3,7 +3,7 @@
+ namespace App\Http\Controllers\Admin;
+ 
+ use App\Http\Controllers\Controller;
+-use App\Models\OperationCancelRequest;
++use App\Models\OperationCancellationRequest;
+ use App\Models\CollaboratorBalance;
+ use Illuminate\Support\Facades\Auth;
+ use Illuminate\Support\Facades\DB;
+@@ -12,7 +12,11 @@ class OperationCancelController extends Controller
+ {
+     public function index()
+     {
+-        $requests = OperationCancelRequest::with(['user','operation'])
++        $requests = OperationCancellationRequest::with([
++                'requester',
++                'operation.partner.user',
++                'operation.operationType',
++            ])
+             ->orderBy('created_at','desc')
+             ->get();
+ 
+@@ -21,7 +25,11 @@ public function index()
+ 
+     public function list()
+     {
+-        $requests = OperationCancelRequest::with(['user','operation'])
++        $requests = OperationCancellationRequest::with([
++                'requester',
++                'operation.partner.user',
++                'operation.operationType',
++            ])
+             ->orderBy('created_at','desc')
+             ->get();
+ 
+@@ -30,7 +38,7 @@ public function list()
+ 
+     public function approve($id)
+     {
+-        $req = OperationCancelRequest::findOrFail($id);
++        $req = OperationCancellationRequest::with('operation.partner.user')->findOrFail($id);
+ 
+         if ($req->status !== 'pending') {
+             return response()->json(['ok'=>false,'message'=>'Demande déjà traitée.']);
+@@ -38,9 +46,8 @@ public function approve($id)
+ 
+         DB::transaction(function () use ($req) {
+             $operation = $req->operation;
+-            $amount    = $operation->amount;
++            $amount    = (float) ($operation->amount ?? 0);
+ 
+-            // Créditer le collaborateur (requested_by)
+             $collabBal = CollaboratorBalance::firstOrCreate(
+                 ['user_id' => $req->requested_by],
+                 ['balance' => 0, 'currency' => 'FCFA', 'updated_by' => Auth::id()]
+@@ -49,25 +56,12 @@ public function approve($id)
+             $collabBal->updated_by = Auth::id();
+             $collabBal->save();
+ 
+-            // Débiter le partenaire (user_id du partenaire)
+-            $partnerUserId = $operation->partner->user_id ?? null;
+-            if ($partnerUserId) {
+-                $partnerBal = CollaboratorBalance::firstOrCreate(
+-                    ['user_id' => $partnerUserId],
+-                    ['balance' => 0, 'currency' => 'FCFA', 'updated_by' => Auth::id()]
+-                );
+-                $partnerBal->balance -= $amount;
+-                $partnerBal->updated_by = Auth::id();
+-                $partnerBal->save();
+-            }
+-
+-            // Remettre l’opération en attente
+             $operation->status = 'pending';
+             $operation->save();
+ 
+-            // Mettre à jour la demande
+-            $req->status   = 'approved';
+-            $req->admin_id = Auth::id();
++            $req->status      = 'approved';
++            $req->approved_by = Auth::id();
++            $req->approved_at = now();
+             $req->save();
+         });
+ 
+@@ -76,16 +70,18 @@ public function approve($id)
+ 
+     public function reject($id)
+     {
+-        $req = OperationCancelRequest::findOrFail($id);
++        $req = OperationCancellationRequest::findOrFail($id);
+ 
+         if ($req->status !== 'pending') {
+             return response()->json(['ok'=>false,'message'=>'Demande déjà traitée.']);
+         }
+ 
+-        $req->status   = 'rejected';
+-        $req->admin_id = Auth::id();
++        $req->status      = 'rejected';
++        $req->approved_by = Auth::id();
++        $req->approved_at = now();
+         $req->save();
+ 
+         return response()->json(['ok'=>true,'message'=>'Demande rejetée.']);
+     }
+ }
++
+diff --git a/app/Http/Controllers/Api/v1/HR/PartnerController.php b/app/Http/Controllers/Api/v1/HR/PartnerController.php
+index 0887180..a7ec56e 100644
+--- a/app/Http/Controllers/Api/v1/HR/PartnerController.php
++++ b/app/Http/Controllers/Api/v1/HR/PartnerController.php
+@@ -877,6 +877,38 @@ public function performances(Request $request)
+             }
+         }
+ 
++        // Ajouter performances des produits livrés (nombre total et montant total)
++        $productAgg = DB::table('inv_delivery_product AS idp')
++            ->join('inv_deliveries AS id', 'idp.delivery_id', 'id.id')
++            ->join('inv_orders AS io', 'id.order_id', 'io.id')
++            ->join('inv_order_product AS iop', function ($j) {
++                $j->on('iop.order_id', '=', 'io.id')->on('iop.product_id', '=', 'idp.product_id');
++            })
++            ->when($request->partner_id, function ($q, $partnerId) {
++                $q->where('io.partner_id', $partnerId);
++            })
++            ->when($request->from_date, function ($q, $fromDate) {
++                $q->where('id.created_at', '>=', $fromDate);
++            })
++            ->when($request->to_date, function ($q, $toDate) {
++                $q->where('id.created_at', '<', $toDate);
++            })
++            ->selectRaw('SUM(idp.quantity) AS nb, SUM(idp.quantity * iop.unit_price) AS amount')
++            ->first();
++
++        $perfs->push((object) [
++            'code' => 'products',
++            'name' => 'Produits',
++            'icon_class' => 'fas fa-boxes',
++            'card_type' => null,
++            'nb' => (int) ($productAgg->nb ?? 0),
++            'amount' => (float) ($productAgg->amount ?? 0),
++            'fee' => 0,
++            'commission' => 0,
++            'data_trans_amount' => 0,
++            'data_amount' => 0,
++        ]);
++
+         return response()->json($perfs);
+     }
+ 
+diff --git a/app/Http/Controllers/Api/v1/Inventory/InvOrderController.php b/app/Http/Controllers/Api/v1/Inventory/InvOrderController.php
+index feccaee..c989ee5 100644
+--- a/app/Http/Controllers/Api/v1/Inventory/InvOrderController.php
++++ b/app/Http/Controllers/Api/v1/Inventory/InvOrderController.php
+@@ -77,9 +77,13 @@ protected function addProduct($obj, $product)
+             throw new Exception("La quantité fournie n'est pas valide");
+         }
+ 
++        $unitPrice = isset($product->unit_price) && is_numeric($product->unit_price)
++            ? $product->unit_price
++            : $pro->unit_price;
++
+         $obj->products()->attach($pro->id, [
+             'quantity' => $product->quantity,
+-            'unit_price' => $pro->unit_price
++            'unit_price' => $unitPrice
+         ]);
+     }
+ 
+@@ -107,9 +111,14 @@ protected function updateProduct($obj, $product)
+             throw new Exception("La quantité déjà livrée pour ce produit est supérieure a sa nouvelle quantité commandée");
+         }
+ 
+-        $obj->products()->updateExistingPivot($product->id, [
++        $payload = [
+             'quantity' => $product->quantity
+-        ]);
++        ];
++        if (isset($product->unit_price) && is_numeric($product->unit_price)) {
++            $payload['unit_price'] = $product->unit_price;
++        }
++
++        $obj->products()->updateExistingPivot($product->id, $payload);
+     }
+ 
+     protected function removeProduct($obj, $product)
+@@ -291,4 +300,39 @@ public function list(Request $request)
+ 
+         return fetchListData($request, $params);
+     }
++
++    /**
++     * Approuver/valider une commande (facture), même si non payée.
++     * Body: is_paid=true|false
++     */
++    public function approve(Request $request, $id)
++    {
++        $request->validate([
++            'is_paid' => 'nullable|in:true,false,0,1'
++        ]);
++
++        $order = InvOrder::with('products')->findOrFail($id);
++
++        // Recalculer total pour fiabilité
++        $total = 0;
++        foreach ($order->products as $p) {
++            $total += ((float)$p->pivot->unit_price) * ((int)$p->pivot->quantity);
++        }
++
++        $order->status = 'approved';
++        if ($request->has('is_paid')) {
++            $val = $request->input('is_paid');
++            $order->is_paid = in_array($val, ['true', '1', 1, true], true);
++        }
++        $order->total_amount = $total;
++        $order->save();
++
++        History::create([
++            'user_id' => $request->user()->id,
++            'title' => "Validation de la commande {$order->code}.",
++            'content' => "La commande {$order->code} a été validée" . ($order->is_paid ? ' (payée).' : ' (non payée).'),
++        ]);
++
++        return response()->json(['message' => "Commande {$order->code} validée."]); 
++    }
+ }
+diff --git a/app/Http/Controllers/Api/v1/OperationCancellationRequestController.php b/app/Http/Controllers/Api/v1/OperationCancellationRequestController.php
+index 0227013..83a568c 100644
+--- a/app/Http/Controllers/Api/v1/OperationCancellationRequestController.php
++++ b/app/Http/Controllers/Api/v1/OperationCancellationRequestController.php
+@@ -5,23 +5,30 @@
+ use App\Http\Controllers\Controller;
+ use Illuminate\Http\Request;
+ use App\Models\Operation;
+-use App\Models\OperationCancelRequest;
+-use App\Models\CollaboratorBalance;
++use App\Models\OperationCancellationRequest;
++use App\Services\CollaboratorBalanceService;
+ use Illuminate\Support\Facades\DB;
+ 
+ class OperationCancellationRequestController extends Controller
+ {
+     /**
+-     * Un collaborateur envoie une demande d’annulation.
++     * Un collaborateur envoie une demande d'annulation.
+      * POST /api/v1/operations-cancel/request/{operationId}
+      */
+     public function requestCancellation(Request $request, $operationId)
+     {
+-        $user = $request->user();                  // Utilisateur connecté (Sanctum)
++        $user = $request->user();
+         $operation = Operation::findOrFail($operationId);
+ 
+-        // Autoriser uniquement si l’opération est dans la même société que le collaborateur
+-        if ($operation->company_id !== $user->company_id) {
++        // Autorisations souples: collab même société, partenaire propriétaire,
++        // reviewers/admins autorisés.
++        $isSameCompany = ($operation->company_id === $user->company_id);
++        $isPartnerOwner = $user->relationLoaded('partner')
++            ? optional($user->partner)->id === $operation->partner_id
++            : (method_exists($user, 'partner') ? optional($user->partner)->id === $operation->partner_id : false);
++        $isReviewerOrAdmin = $user->hasRole('reviewer') || $user->hasRole('admin');
++
++        if (!($isReviewerOrAdmin || ($user->hasRole('collab') && $isSameCompany) || ($user->hasRole('partner') && $isPartnerOwner))) {
+             return response()->json(['message' => "Opération non autorisée pour cet utilisateur."], 403);
+         }
+ 
+@@ -30,30 +37,64 @@ public function requestCancellation(Request $request, $operationId)
+             return response()->json(['message' => "Cette opération n'est pas éligible à l'annulation."], 422);
+         }
+ 
+-        // Vérifier qu’il n’existe pas déjà une demande en attente pour cette opération
+-        $existing = OperationCancelRequest::where('operation_id', $operation->id)
++        // Motif facultatif côté front (par compatibilité) mais stocké.
++        // Si vide/non fourni, on applique un texte par défaut.
++        $data = $request->validate([
++            'reason' => ['nullable','string','max:500'],
++        ], [
++            'reason.string'   => 'Le motif doit être une chaîne de caractères',
++            'reason.max'      => 'Le motif ne doit pas dépasser 500 caractères',
++        ]);
++
++        $existing = OperationCancellationRequest::where('operation_id', $operation->id)
+             ->where('status', 'pending')
+             ->exists();
+         if ($existing) {
+             return response()->json(['message' => "Une demande d'annulation est déjà en attente."], 422);
+         }
+ 
+-        // Créer la demande d’annulation (requested_by = user_id du collaborateur)
+-        OperationCancelRequest::create([
++        $reason = trim($data['reason'] ?? '');
++        if ($reason === '') {
++            $reason = "Annulation demandée (aucun motif saisi)";
++        }
++
++        $ocr = OperationCancellationRequest::create([
+             'operation_id' => $operation->id,
+             'requested_by' => $user->id,
++            'reason'       => $reason,
+             'status'       => 'pending',
+         ]);
+ 
+-        return response()->json(['message' => 'Demande d’annulation envoyée avec succès.']);
++        return response()->json(['message' => "Demande d'annulation envoyée avec succès."]);
+     }
+ 
+     /**
+-     * (Optionnel) Valider une demande via l'API.
++     * Alias compatible avec l'ancien front: POST /api/collab/operations-cancel
++     * Body attendu: { operation_id, reason }
++     */
++    public function requestFromBody(Request $request)
++    {
++        $payload = $request->validate([
++            'operation_id' => ['required','integer','exists:operations,id'],
++            'reason' => ['nullable','string','max:500']
++        ], [
++            'operation_id.required' => "L'identifiant de l'opération est requis",
++            'operation_id.integer'  => "L'identifiant de l'opération doit être un entier",
++            'operation_id.exists'   => "L'opération spécifiée est introuvable",
++            'reason.string'         => 'Le motif doit être une chaîne de caractères',
++            'reason.max'            => 'Le motif ne doit pas dépasser 500 caractères',
++        ]);
++        // proxy vers la méthode principale: normaliser le champ reason
++        $request->merge(['reason' => $payload['reason'] ?? null]);
++        return $this->requestCancellation($request, $payload['operation_id']);
++    }
++
++    /**
++     * Approuver une demande d'annulation (admin)
+      */
+     public function approveCancellation(Request $request, $requestId)
+     {
+-        $req = OperationCancelRequest::findOrFail($requestId);
++        $req = OperationCancellationRequest::with('operation.partner.user')->findOrFail($requestId);
+ 
+         if ($req->status !== 'pending') {
+             return response()->json(['message' => 'Demande déjà traitée.'], 422);
+@@ -61,58 +102,57 @@ public function approveCancellation(Request $request, $requestId)
+ 
+         DB::transaction(function () use ($req) {
+             $operation = $req->operation;
+-            $amount    = $operation->amount;
+-
+-            // Créditer le collaborateur
+-            $collabBal = CollaboratorBalance::firstOrCreate(
+-                ['user_id' => $req->requested_by],
+-                ['balance' => 0, 'currency' => 'FCFA', 'updated_by' => auth()->id()]
+-            );
+-            $collabBal->balance += $amount;
+-            $collabBal->updated_by = auth()->id();
+-            $collabBal->save();
+-
+-            // Débiter le partenaire (via user du partenaire)
+-            $partnerUserId = $operation->partner->user_id ?? null;
+-            if ($partnerUserId) {
+-                $partnerBal = CollaboratorBalance::firstOrCreate(
+-                    ['user_id' => $partnerUserId],
+-                    ['balance' => 0, 'currency' => 'FCFA', 'updated_by' => auth()->id()]
+-                );
+-                $partnerBal->balance -= $amount;
+-                $partnerBal->updated_by = auth()->id();
+-                $partnerBal->save();
+-            }
++            $amount    = (float) ($operation->amount ?? 0);
++
++            // Créditer le solde du collaborateur qui a demandé
++            app(CollaboratorBalanceService::class)
++                ->credit($req->requested_by, (int) round($amount), "Annulation de l'opération {$operation->code}");
+ 
+-            // Remettre l’opération en attente
++            // Revenir à l'état pending côté opération
+             $operation->status = 'pending';
+             $operation->save();
+ 
+             // Mettre à jour la demande
+-            $req->status   = 'approved';
+-            $req->admin_id = auth()->id();
++            $req->status      = 'approved';
++            $req->approved_by = auth()->id();
++            $req->approved_at = now();
+             $req->save();
++
++            // Mettre à jour l'ancienne table si une entrée existe
++            if ($legacy = OperationCancelRequest::where('operation_id', $operation->id)->where('status','pending')->first()) {
++                $legacy->status   = 'approved';
++                $legacy->admin_id = auth()->id();
++                $legacy->save();
++            }
+         });
+ 
+-        return response()->json(['message' => 'Demande d’annulation approuvée.']);
++        return response()->json(['message' => "Demande d'annulation approuvée."]);
+     }
+ 
+     /**
+-     * (Optionnel) Rejeter une demande via l'API.
++     * Rejeter une demande d'annulation (admin)
+      */
+     public function rejectCancellation(Request $request, $requestId)
+     {
+-        $req = OperationCancelRequest::findOrFail($requestId);
++        $req = OperationCancellationRequest::findOrFail($requestId);
+ 
+         if ($req->status !== 'pending') {
+             return response()->json(['message' => 'Demande déjà traitée.'], 422);
+         }
+ 
+-        $req->status   = 'rejected';
+-        $req->admin_id = auth()->id();
++        $req->status      = 'rejected';
++        $req->approved_by = auth()->id();
++        $req->approved_at = now();
+         $req->save();
+ 
+-        return response()->json(['message' => 'Demande d’annulation rejetée.']);
++        // Mettre à jour l'ancienne table si une entrée existe
++        if ($legacy = OperationCancelRequest::where('operation_id', $req->operation_id)->where('status','pending')->first()) {
++            $legacy->status   = 'rejected';
++            $legacy->admin_id = auth()->id();
++            $legacy->save();
++        }
++
++        return response()->json(['message' => "Demande d'annulation rejetée."]);
+     }
+ 
+     /**
+@@ -120,7 +160,7 @@ public function rejectCancellation(Request $request, $requestId)
+      */
+     public function listRequests()
+     {
+-        $requests = OperationCancelRequest::with(['user','operation'])
++        $requests = OperationCancellationRequest::with(['requester','operation'])
+             ->orderBy('created_at','desc')
+             ->get();
+ 
+diff --git a/app/Http/Controllers/Api/v1/OperationController.php b/app/Http/Controllers/Api/v1/OperationController.php
+index 9680d1a..714eb67 100644
+--- a/app/Http/Controllers/Api/v1/OperationController.php
++++ b/app/Http/Controllers/Api/v1/OperationController.php
+@@ -15,6 +15,9 @@
+ use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+ use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+ use Illuminate\Support\Facades\Log;
++use App\Models\User;
++use App\Models\Partner;
++use App\Models\User;
+ 
+ class OperationController extends Controller
+ {
+@@ -72,7 +75,60 @@ public function store(Request $request, $opTypeCode)
+             ...$this->operationService->getOperationValidator($this->opType, 'store')
+         );
+ 
+-        $partner = $authUser->partner;
++        // Déterminer le partenaire de contexte
++        if ($authUser->hasRole('partner')) {
++            $partner = $authUser->partner; // partner-master/partner-pos
++        } else {
++            $masterUser = User::role('partner-master')
++                ->where('company_id', $authUser->company_id)
++                ->first();
++            if (!$masterUser || !$masterUser->partner) {
++                return response()->json(['message' => "Aucun partenaire maître trouvé pour votre entreprise."], 422);
++            }
++            $partner = $masterUser->partner;
++        }
++
++        [$error, $obj] = $this->operationService->createOperation(
++            $partner,
++            $this->opType,
++            $data
++        );
++
++        if ($error) {
++            return response()->json($error, 500);
++        }
++
++        return response()->json([
++            'message' => $this->operationService->renderText(
++                $this->opType,
++                OperationService::STORE_SUCCESS_MESSAGE,
++                $obj
++            )
++        ]);
++    }
++
++    // Création d'une opération pour un partenaire ciblé (collab/reviewer/admin)
++    public function storeForPartner(Request $request, $opTypeCode, $partnerId)
++    {
++        set_time_limit(0);
++        $this->fetchOpType($opTypeCode);
++
++        $authUser = $request->user();
++        $partner = \App\Models\Partner::with('user')->findOrFail($partnerId);
++
++        // Interdire aux partenaires POS d'utiliser ce flux
++        if ($authUser->hasRole('partner')) {
++            return response()->json(['message' => OperationService::NOT_ALLOWED_TEXT], 405);
++        }
++
++        // Si collab, s'assurer même entreprise
++        if ($authUser->hasRole('collab') && $authUser->company_id !== $partner->company_id) {
++            return response()->json(['message' => OperationService::NOT_ALLOWED_TEXT], 405);
++        }
++
++        $data = $request->validate(
++            ...$this->operationService->getOperationValidator($this->opType, 'store')
++        );
+ 
+         [$error, $obj] = $this->operationService->createOperation(
+             $partner,
+diff --git a/database/migrations/2025_08_29_000001_update_inv_orders_add_billing_fields.php b/database/migrations/2025_08_29_000001_update_inv_orders_add_billing_fields.php
+new file mode 100644
+index 0000000..585b7c6
+--- /dev/null
++++ b/database/migrations/2025_08_29_000001_update_inv_orders_add_billing_fields.php
+@@ -0,0 +1,32 @@
++<?php
++
++use Illuminate\Database\Migrations\Migration;
++use Illuminate\Database\Schema\Blueprint;
++use Illuminate\Support\Facades\Schema;
++
++return new class extends Migration
++{
++    public function up(): void
++    {
++        Schema::table('inv_orders', function (Blueprint $table) {
++            $table->unsignedBigInteger('partner_id')->nullable()->after('id')->index();
++            $table->unsignedBigInteger('extra_client_id')->nullable()->after('partner_id')->index();
++            $table->string('status')->default('draft')->after('updator_id');
++            $table->boolean('is_paid')->default(false)->after('status');
++            $table->decimal('total_amount', 17, 2)->default(0)->after('is_paid');
++
++            $table->foreign('partner_id')->references('id')->on('partners')->nullOnDelete();
++            $table->foreign('extra_client_id')->references('id')->on('extra_clients')->nullOnDelete();
++        });
++    }
++
++    public function down(): void
++    {
++        Schema::table('inv_orders', function (Blueprint $table) {
++            $table->dropForeign(['partner_id']);
++            $table->dropForeign(['extra_client_id']);
++            $table->dropColumn(['partner_id','extra_client_id','status','is_paid','total_amount']);
++        });
++    }
++};
++
+diff --git a/resources/js/dashboards/admin.js b/resources/js/dashboards/admin.js
+index 8533663..32e1d3c 100644
+--- a/resources/js/dashboards/admin.js
++++ b/resources/js/dashboards/admin.js
+@@ -137,8 +137,32 @@ async function loadData() {
+   renderChartOperationStatus(data);
+ }
+ 
++function initNewOperationBlock() {
++  try {
++    const isAllowed = USER.hasRole('admin') || USER.hasRole('collab');
++    if (!isAllowed) {
++      $('#newOperationBlock').hide();
++      return;
++    }
++    const $sel = $('#newOpType');
++    $sel.empty().append(`<option value="">Sélectionner un type...</option>`);
++    (SETTINGS.opTypes || []).forEach(t => {
++      $sel.append(`<option value="${t.code}">${t.name}</option>`);
++    });
++    $sel.on('change', function(){
++      const code = $(this).val();
++      if (code) {
++        $('#newOpBtn').removeClass('disabled').attr('href', `/operations/${code}/create`);
++      } else {
++        $('#newOpBtn').addClass('disabled').attr('href', '#');
++      }
++    });
++  } catch (e) { console.warn('initNewOperationBlock', e); }
++}
++
+ window.render = async function () {
+   generateOperationGroups();
+   await loadData();
+   $('#dashboardMessage').html(SETTINGS.dashboardMessage);
++  initNewOperationBlock();
+ };
+diff --git a/resources/js/dashboards/collab.js b/resources/js/dashboards/collab.js
+index c50e4de..5dd31a6 100644
+--- a/resources/js/dashboards/collab.js
++++ b/resources/js/dashboards/collab.js
+@@ -137,10 +137,35 @@ async function loadData() {
+   renderChartOperationStatus(data);
+ }
+ 
++function initNewOperationBlock() {
++  try {
++    const isAllowed = USER.hasRole('admin') || USER.hasRole('collab');
++    if (!isAllowed) {
++      $('#newOperationBlock').hide();
++      return;
++    }
++    const $sel = $('#newOpType');
++    if (!$sel.length) return;
++    $sel.empty().append(`<option value="">Sélectionner un type...</option>`);
++    (SETTINGS.opTypes || []).forEach(t => {
++      $sel.append(`<option value="${t.code}">${t.name}</option>`);
++    });
++    $sel.on('change', function(){
++      const code = $(this).val();
++      if (code) {
++        $('#newOpBtn').removeClass('disabled').attr('href', `/operations/${code}/create`);
++      } else {
++        $('#newOpBtn').addClass('disabled').attr('href', '#');
++      }
++    });
++  } catch (e) { console.warn('initNewOperationBlock', e); }
++}
++
+ window.render = async function () {
+   generateOperationGroups();
+   await loadData();
+   $('#dashboardMessage').html(SETTINGS.dashboardMessage);
++  initNewOperationBlock();
+ };
+ 
+ 
+diff --git a/resources/js/inv-orders/view.js b/resources/js/inv-orders/view.js
+index c76eb43..3674500 100644
+--- a/resources/js/inv-orders/view.js
++++ b/resources/js/inv-orders/view.js
+@@ -120,4 +120,23 @@ window.render = async function () {
+   $('#delete').click(function (e) {
+     deleteObject();
+   });
++
++  // Validation facture: accessible admin/collab côté UI
++  async function approveInvoice(isPaid) {
++    try {
++      swalLoading();
++      const { data } = await ajax({
++        url: `${API_BASEURL}/inv-orders/approve/${object.id}`,
++        type: 'POST',
++        data: { is_paid: isPaid ? 'true' : 'false' },
++      });
++      Toast.fire(data.message || 'Commande validée.', '', 'success');
++      location.reload();
++    } catch ({ error }) {
++      Swal.fire(error?.responseJSON?.message || 'Erreur', '', 'error');
++    }
++  }
++
++  $('#approvePaid').on('click', () => approveInvoice(true));
++  $('#approveUnpaid').on('click', () => approveInvoice(false));
+ };
+diff --git a/resources/js/layouts/app.js b/resources/js/layouts/app.js
+index 19290b1..732e4e2 100644
+--- a/resources/js/layouts/app.js
++++ b/resources/js/layouts/app.js
+@@ -23,8 +23,7 @@
+           </a>
+           <ul class="submenu">
+             ${
+-              USER.hasRole('partner-pos') &&
+-              ['balance_withdrawal'].includes(opType.code)
++              USER.hasRole('partner-pos') && ['balance_withdrawal'].includes(opType.code)
+                 ? ''
+                 : `
+                 <li class="submenu-item" data-permission="add operation">
+@@ -61,7 +60,11 @@
+     });
+ 
+     $('[data-permission]').each(function () {
+-      let permissions = $(this).attr('data-permission').split('|');
++      const permissions = $(this).attr('data-permission').split('|');
++      // Laisser visible "add operation" pour admin et collab même si l'autorisation n'est pas explicitement mappée
++      if (permissions.includes('add operation') && (USER.hasRole('admin') || USER.hasRole('collab'))) {
++        return;
++      }
+       for (const permission of permissions) if (USER.can(permission)) return;
+       $(this).hide();
+     });
+diff --git a/resources/js/operations/create.js b/resources/js/operations/create.js
+index 1ac7e35..8ceae69 100644
+--- a/resources/js/operations/create.js
++++ b/resources/js/operations/create.js
+@@ -99,6 +99,44 @@ function setForm() {
+   }
+ }
+ 
++function initPartnerSelector() {
++  try {
++    const canChoosePartner = typeof USER?.hasRole === 'function' && (USER.hasRole('collab') || USER.hasRole('reviewer') || USER.hasRole('admin'));
++    if (!canChoosePartner) {
++      $('#partnerSelectBlock').hide();
++      return;
++    }
++
++    $('#partnerSelectBlock').show();
++    $('#partnerId').select2({
++      theme: 'bootstrap-5',
++      placeholder: 'Rechercher un partenaire (code, nom, société)',
++      allowClear: true,
++      ajax: {
++        transport: function (params, success, failure) {
++          $.ajax({
++            url: `${API_BASEURL}/partners/fetch-by-term`,
++            type: 'GET',
++            data: { term: params.data.term || '' },
++            success,
++            error: failure,
++          });
++        },
++        delay: 250,
++        processResults: function (data) {
++          const results = (data || []).map(p => ({
++            id: p.id,
++            text: `${p.code} - ${p.first_name} ${p.last_name}${p.company_name ? ' ('+p.company_name+')' : ''}`
++          }));
++          return { results };
++        }
++      }
++    });
++  } catch (e) {
++    console.warn('initPartnerSelector error:', e);
++  }
++}
++
+ async function createObject() {
+   swalLoading();
+ 
+@@ -131,8 +169,14 @@ async function createObject() {
+   }
+ 
+   try {
++    let endpoint = `${API_BASEURL}/operations/${opType.code}/store`;
++    const selectedPartnerId = $('#partnerId').val();
++    if (selectedPartnerId) {
++      endpoint = `${API_BASEURL}/operations/${opType.code}/store-for-partner/${selectedPartnerId}`;
++    }
++
+     let { data } = await ajax({
+-      url: `${API_BASEURL}/operations/${opType.code}/store`,
++      url: endpoint,
+       type: 'POST',
+       contentType: false,
+       processData: false,
+@@ -626,4 +670,5 @@ window.render = async function () {
+   await fetchObject();
+   initFields();
+   await otherInits();
++  initPartnerSelector();
+ };
+diff --git a/resources/js/operations/view.js b/resources/js/operations/view.js
+index 63ebeb3..6ad7deb 100644
+--- a/resources/js/operations/view.js
++++ b/resources/js/operations/view.js
+@@ -1,4 +1,4 @@
+-/* resources/js/operations/view.js */
++﻿/* resources/js/operations/view.js */
+ 
+ let object = null;
+ let opType = null;
+@@ -103,10 +103,10 @@ function displayObject() {
+       $('#status').html('<span class="badge bg-secondary">En attente</span>');
+       break;
+     case 'approved':
+-      $('#status').html('<span class="badge bg-success">Validée</span>');
++      $('#status').html('<span class="badge bg-success">ValidÃ©e</span>');
+       break;
+     case 'rejected':
+-      $('#status').html('<span class="badge bg-danger">Rejetée</span>');
++      $('#status').html('<span class="badge bg-danger">RejetÃ©e</span>');
+       break;
+   }
+ 
+@@ -165,7 +165,7 @@ function displayObject() {
+     if (opType.code === 'account_recharge' && fieldName === 'trans_amount') {
+       tBody.append(`
+         <tr>
+-          <th>Montant avant prélèvement</th>
++          <th>Montant avant prÃ©lÃ¨vement</th>
+           <td>${formatAmount(
+             object.data.sender_phone_number_type === 'MomoPay'
+               ? object.data.trans_amount / (1 - 0.005)
+@@ -202,10 +202,10 @@ function displayObject() {
+     if (object.duplicates) {
+       $('#alertMessage')
+         .html(
+-          `Ce client a déjà fait l'object ${
++          `Ce client a dÃ©jÃ  fait l'object ${
+             object.duplicates === 1
+-              ? `d'une autre activation de carte approuvée`
+-              : `de ${object.duplicates} autres activations de cartes approuvées`
++              ? `d'une autre activation de carte approuvÃ©e`
++              : `de ${object.duplicates} autres activations de cartes approuvÃ©es`
+           }`
+         )
+         .show();
+@@ -216,8 +216,8 @@ function displayObject() {
+ async function approveObject() {
+   try {
+     let swalResult = await Swal.fire({
+-      title: `Voulez-vous vraiment valider l'opération ${opType.name} ${object.code}?`,
+-      text: 'Cette opération est irreversible',
++      title: `Voulez-vous vraiment valider l'opÃ©ration ${opType.name} ${object.code}?`,
++      text: 'Cette opÃ©ration est irreversible',
+       input: 'textarea',
+       inputPlaceholder: 'Vous pouvez laisser un feedback ici...',
+       icon: 'question',
+@@ -251,8 +251,8 @@ async function approveObject() {
+ async function approveObjectWithoutCommission() {
+   try {
+     let swalResult = await Swal.fire({
+-      title: `Voulez-vous vraiment valider l'opération ${opType.name} ${object.code} sans les commissions?`,
+-      text: 'Cette opération est irreversible. Et le partenaire ne recevra pas de commissions.',
++      title: `Voulez-vous vraiment valider l'opÃ©ration ${opType.name} ${object.code} sans les commissions?`,
++      text: 'Cette opÃ©ration est irreversible. Et le partenaire ne recevra pas de commissions.',
+       input: 'textarea',
+       inputPlaceholder: 'Vous pouvez laisser un feedback ici...',
+       icon: 'question',
+@@ -286,8 +286,8 @@ async function approveObjectWithoutCommission() {
+ async function rejectObject() {
+   try {
+     let swalResult = await Swal.fire({
+-      title: `Voulez-vous vraiment rejeter l'opération ${opType.name} ${object.code}?`,
+-      text: 'Cette opération est irreversible',
++      title: `Voulez-vous vraiment rejeter l'opÃ©ration ${opType.name} ${object.code}?`,
++      text: 'Cette opÃ©ration est irreversible',
+       input: 'textarea',
+       inputPlaceholder: 'Vous pouvez laisser un feedback ici...',
+       icon: 'question',
+@@ -320,8 +320,8 @@ async function rejectObject() {
+ async function deleteObject() {
+   try {
+     let swalResult = await Swal.fire({
+-      title: `Voulez-vous vraiment supprimer l'opération ${opType.name} ${object.code}?`,
+-      text: 'Cette opération est irreversible',
++      title: `Voulez-vous vraiment supprimer l'opÃ©ration ${opType.name} ${object.code}?`,
++      text: 'Cette opÃ©ration est irreversible',
+       icon: 'question',
+       showCancelButton: true,
+       confirmButtonText: 'Oui',
+@@ -348,7 +348,7 @@ async function deleteObject() {
+ 
+ /**
+  * Ajoute le bouton "Demander l'annulation" pour les collaborateurs
+- * uniquement si l'opération est validée. La requête est envoyée vers l'API.
++ * uniquement si l'opÃ©ration est validÃ©e. La requÃªte est envoyÃ©e vers l'API.
+  */
+ /*function addCancelButtonIfAllowed() {
+   const isCollab = typeof USER?.hasRole === 'function' && USER.hasRole('collab');
+@@ -377,7 +377,7 @@ async function deleteObject() {
+ 
+       const confirmation = await Swal.fire({
+         title: 'Confirmer',
+-        text: "Voulez-vous envoyer une demande d'annulation pour cette opération ?",
++        text: "Voulez-vous envoyer une demande d'annulation pour cette opÃ©rationÂ ?",
+         icon: 'question',
+         showCancelButton: true,
+         confirmButtonText: 'Oui, envoyer',
+@@ -392,7 +392,7 @@ async function deleteObject() {
+       });
+ 
+       try {
+-        // Utilise l'API versionnée (auth:sanctum)
++        // Utilise l'API versionnÃ©e (auth:sanctum)
+         const response = await $.ajax({
+           url: `${API_BASEURL}/operations-cancel/request/${object.id}`,
+           method: 'POST',
+@@ -402,7 +402,7 @@ async function deleteObject() {
+             'X-Requested-With': 'XMLHttpRequest'
+           }
+         });
+-        Swal.fire(response.message || 'Demande envoyée.', '', 'success');
++        Swal.fire(response.message || 'Demande envoyÃ©e.', '', 'success');
+         $('#btnCancelOp').prop('disabled', true);
+       } catch (err) {
+         const message =
+@@ -423,11 +423,11 @@ window.render = async function () {
+   setTitle(`${opType.name} ${object.code}`);
+ 
+   $('#linkList')
+-    .html(`<i class="fas fa-list"></i> Liste des opérations`)
++    .html(`<i class="fas fa-list"></i> Liste des opÃ©rations`)
+     .attr('href', `/operations/${opType.code}`);
+ 
+   displayObject();
+-  addCancelButtonIfAllowed(); // important : après displayObject()
++  addCancelButtonIfAllowed(); // importantÂ : aprÃ¨s displayObject()
+ 
+   $('#edit').click(function () {
+     location = `/operations/${opType.code}/${object.id}/edit`;
+@@ -471,7 +471,7 @@ window.render = async function () {
+ 
+       const confirm = await Swal.fire({
+         title: 'Confirmer',
+-        text: "Envoyer une demande d'annulation ?",
++        text: "Envoyer une demande d'annulationÂ ?",
+         icon: 'question',
+         showCancelButton: true,
+         confirmButtonText: 'Oui',
+@@ -486,7 +486,7 @@ window.render = async function () {
+       });
+ 
+       try {
+-        // Envoi via l’API (auth:sanctum)
++        // Envoi via lâ€™API (auth:sanctum)
+         const res = await $.ajax({
+           url: `${API_BASEURL}/operations-cancel/request/${object.id}`,
+           method: 'POST',
+@@ -496,7 +496,7 @@ window.render = async function () {
+             'X-Requested-With': 'XMLHttpRequest'
+           }
+         });
+-        Swal.fire(res.message || 'Demande envoyée.', '', 'success');
++        Swal.fire(res.message || 'Demande envoyÃ©e.', '', 'success');
+         $('#btnCancelOp').prop('disabled', true);
+       } catch (err) {
+         const msg =
+@@ -517,7 +517,7 @@ window.render = async function () {
+   setTitle(`${opType.name} ${object.code}`);
+ 
+   $('#linkList')
+-    .html(`<i class="fas fa-list"></i> Liste des opérations`)
++    .html(`<i class="fas fa-list"></i> Liste des opÃ©rations`)
+     .attr('href', `/operations/${opType.code}`);
+ 
+   displayObject();
+@@ -574,10 +574,10 @@ window.render = async function () {
+ 
+ 
+  /**
+- * Ajoute le bouton “Demander l'annulation” :
+- * - uniquement si l'utilisateur a le rôle collab
+- * - uniquement si l'opération est “approved”
+- * L'appel part vers l’API Sanctum : /api/v1/operations-cancel/request/{id}
++ * Ajoute le bouton â€œDemander l'annulationâ€ :
++ * - uniquement si l'utilisateur a le rÃ´le collab
++ * - uniquement si l'opÃ©ration est â€œapprovedâ€
++ * L'appel part vers lâ€™API Sanctum : /api/v1/operations-cancel/request/{id}
+  */
+ function addCancelButtonIfAllowed() {
+   const isCollab  = typeof USER?.hasRole === 'function' && USER.hasRole('collab');
+@@ -602,15 +602,22 @@ function addCancelButtonIfAllowed() {
+     $('#btnCancelOp').on('click', async function () {
+       const csrf = $('meta[name="csrf-token"]').attr('content') || '';
+ 
+-      const confirm = await Swal.fire({
+-        title: 'Confirmer',
+-        text: "Envoyer une demande d'annulation ?",
+-        icon: 'question',
++      const { value: reason } = await Swal.fire({
++        title: "Demander l'annulation",
++        input: 'textarea',
++        inputPlaceholder: 'Motif (obligatoire)',
++        inputAttributes: { 'aria-label': 'Motif' },
+         showCancelButton: true,
+-        confirmButtonText: 'Oui',
+-        cancelButtonText: 'Non',
++        confirmButtonText: 'Envoyer',
++        cancelButtonText: 'Annuler',
++        preConfirm: (val) => {
++          if (!val || !val.trim()) {
++            Swal.showValidationMessage('Le motif est requis');
++          }
++          return val;
++        }
+       });
+-      if (!confirm.isConfirmed) return;
++      if (!reason) return;
+ 
+       Swal.fire({
+         title: 'Envoi en cours...',
+@@ -619,17 +626,18 @@ function addCancelButtonIfAllowed() {
+       });
+ 
+       try {
+-        // Envoi à l’API versionnée : /api/v1/operations-cancel/request/{operationId}
++        // Envoi Ã  lâ€™API versionnÃ©e : /api/v1/operations-cancel/request/{operationId}
+         const res = await $.ajax({
+           url: `${API_BASEURL}/operations-cancel/request/${object.id}`,
+           method: 'POST',
+           dataType: 'json',
++          data: { reason },
+           headers: {
+             'X-CSRF-TOKEN': csrf,
+             'X-Requested-With': 'XMLHttpRequest',
+           }
+         });
+-        Swal.fire(res.message || 'Demande envoyée.', '', 'success');
++        Swal.fire(res.message || 'Demande envoyÃ©e.', '', 'success');
+         $('#btnCancelOp').prop('disabled', true);
+       } catch (err) {
+         const msg = err?.responseJSON?.message || err?.responseText || err?.message || "Erreur";
+@@ -643,7 +651,7 @@ window.render = async function () {
+   fetchOpType();
+   await fetchObject();
+   setTitle(`${opType.name} ${object.code}`);
+-  $('#linkList').html(`<i class="fas fa-list"></i> Liste des opérations`)
++  $('#linkList').html(`<i class="fas fa-list"></i> Liste des opÃ©rations`)
+                .attr('href', `/operations/${opType.code}`);
+ 
+   displayObject();
+@@ -708,4 +716,3 @@ window.render = async function () {
+   ) {
+     $('#approveWithoutCommission').hide();
+   }
+-
+diff --git a/resources/js/partials/product-adding.js b/resources/js/partials/product-adding.js
+index d70b322..beddf1d 100644
+--- a/resources/js/partials/product-adding.js
++++ b/resources/js/partials/product-adding.js
+@@ -62,6 +62,7 @@ window.fillProductAdding = function (data) {
+         return {
+           id: row.product_id,
+           quantity: row.quantity,
++          unit_price: row.unit_price,
+         };
+       })
+   );
+@@ -71,11 +72,38 @@ window.fillProductAdding = function (data) {
+ 
+ window.initDataTableProducts = function () {
+   datatableProducts = $('#tableProducts')
+-    .on('click', '.edit', function (e) {
++    .on('click', '.edit', async function (e) {
+       selectedProductRow = $(this).closest('tr');
+       selectedProduct = datatableProducts.row(selectedProductRow).data();
+-      $('#invProductId').val(selectedProduct.product_id).prop('disabled', true);
+-      $('#quantity').val(selectedProduct.quantity);
++
++      // Prompt pour éditer quantité et prix unitaire
++      const { value: formValues } = await Swal.fire({
++        title: `Modifier ${selectedProduct.name}`,
++        html:
++          `<div class="mb-2 text-start"><label class="form-label">Prix unitaire</label>`+
++          `<input type="number" id="swalUnitPrice" class="form-control" value="${selectedProduct.unit_price}"></div>`+
++          `<div class="mb-2 text-start"><label class="form-label">Quantité</label>`+
++          `<input type="number" id="swalQuantity" class="form-control" value="${selectedProduct.quantity}"></div>`,
++        focusConfirm: false,
++        showCancelButton: true,
++        confirmButtonText: 'Enregistrer',
++        cancelButtonText: 'Annuler',
++        preConfirm: () => {
++          return {
++            unit_price: parseFloat(document.getElementById('swalUnitPrice').value) || 0,
++            quantity: parseInt(document.getElementById('swalQuantity').value) || 0,
++          };
++        }
++      });
++
++      if (!formValues) return;
++
++      selectedProduct.unit_price = formValues.unit_price > 0 ? formValues.unit_price : selectedProduct.unit_price;
++      selectedProduct.quantity = formValues.quantity > 0 ? formValues.quantity : selectedProduct.quantity;
++      selectedProduct.total_cost = selectedProduct.unit_price * selectedProduct.quantity;
++      datatableProducts.row(selectedProductRow).data(selectedProduct).draw(false);
++      selectedProductRow = null;
++      selectedProduct = null;
+     })
+     .on('click', '.remove', function (e) {
+       datatableProducts.row($(this).closest('tr')).remove().draw(false);
+@@ -157,7 +185,10 @@ window.initProductAdding = function () {
+         return;
+       }
+ 
+-      let unitPrice = parseInt(productOption.data('unit_price'));
++      let unitPrice = parseFloat($('#unitPrice').val());
++      if (!(unitPrice > 0)) {
++        unitPrice = parseFloat(productOption.data('unit_price'));
++      }
+ 
+       datatableProducts.row.add({
+         product_id: productId,
+@@ -182,5 +213,6 @@ window.initProductAdding = function () {
+ 
+     $('#invProductId').val('').prop('disabled', false);
+     $('#quantity').val('0');
++    $('#unitPrice').val('');
+   });
+ };
+diff --git a/resources/views/admin/operations-cancel/index.blade.php b/resources/views/admin/operations-cancel/index.blade.php
+index 5258ce5..ebf471f 100644
+--- a/resources/views/admin/operations-cancel/index.blade.php
++++ b/resources/views/admin/operations-cancel/index.blade.php
+@@ -12,7 +12,7 @@
+                     <thead class="table-light">
+                         <tr>
+                             <th>ID</th>
+-                            <th>Collaborateur</th>
++                            <th>Demandée par</th>
+                             <th>Partenaire</th>
+                             <th>Opération</th>
+                             <th>Montant</th>
+@@ -25,10 +25,10 @@
+                         @foreach($requests as $req)
+                         <tr id="request-{{ $req->id }}">
+                             <td>{{ $req->id }}</td>
+-                            <td>{{ $req->user->first_name ?? 'N/A' }} {{ $req->user->last_name ?? '' }}</td>
+-                            <td>{{ $req->operation->partner->first_name ?? 'N/A' }} {{ $req->operation->partner->last_name ?? '' }}</td>
+-                            <td>{{ $req->operation->type }}</td>
+-                            <td>{{ number_format($req->operation->amount, 0, ',', ' ') }} FCFA</td>
++                            <td>{{ optional($req->requester)->first_name }} {{ optional($req->requester)->last_name }}</td>
++                            <td>{{ optional(optional($req->operation->partner)->user)->first_name }} {{ optional(optional($req->operation->partner)->user)->last_name }}</td>
++                            <td>{{ optional($req->operation->operationType)->name }} ({{ $req->operation->code }})</td>
++                            <td>{{ number_format($req->operation->amount ?? 0, 0, ',', ' ') }} FCFA</td>
+                             <td>{{ $req->created_at->format('d/m/Y H:i') }}</td>
+                             <td>
+                                 @if($req->status === 'pending')
+diff --git a/resources/views/dashboards/admin.blade.php b/resources/views/dashboards/admin.blade.php
+index eb93f22..390445a 100644
+--- a/resources/views/dashboards/admin.blade.php
++++ b/resources/views/dashboards/admin.blade.php
+@@ -31,6 +31,19 @@
+ 
+       <div class="tab-content mt-4">
+         <div class="tab-pane fade show active" id="operations" role="tabpanel" aria-labelledby="tabOperations">
++          <div class="row mb-3" id="newOperationBlock">
++            <div class="col-12 col-lg-6">
++              <div class="card">
++                <div class="card-body">
++                  <div class="d-flex align-items-center">
++                    <select id="newOpType" class="form-select me-2" style="min-width:280px"></select>
++                    <a id="newOpBtn" class="btn btn-primary disabled" href="#"><i class="fas fa-plus"></i> Nouvelle opération</a>
++                  </div>
++                  <div class="form-text">Choisissez un type d’opération puis cliquez sur “Nouvelle opération”.</div>
++                </div>
++              </div>
++            </div>
++          </div>
+           <div class="row" id="otherOps">
+             <h5>Autres</h5>
+             <div class="col-12 col-lg-4 col-md-6">
+diff --git a/resources/views/dashboards/collab.blade.php b/resources/views/dashboards/collab.blade.php
+index 23a495e..8277185 100644
+--- a/resources/views/dashboards/collab.blade.php
++++ b/resources/views/dashboards/collab.blade.php
+@@ -57,6 +57,19 @@
+ 
+       <div class="tab-content mt-4">
+         <div class="tab-pane fade show active" id="operations" role="tabpanel" aria-labelledby="tabOperations">
++          <div class="row mb-3" id="newOperationBlock">
++            <div class="col-12 col-lg-6">
++              <div class="card">
++                <div class="card-body">
++                  <div class="d-flex align-items-center">
++                    <select id="newOpType" class="form-select me-2" style="min-width:280px"></select>
++                    <a id="newOpBtn" class="btn btn-primary disabled" href="#"><i class="fas fa-plus"></i> Nouvelle opération</a>
++                  </div>
++                  <div class="form-text">Choisissez un type d’opération puis cliquez sur “Nouvelle opération”.</div>
++                </div>
++              </div>
++            </div>
++          </div>
+           <div class="row" id="otherOps">
+             <h5>Autres</h5>
+             <div class="col-12 col-lg-4 col-md-6">
+diff --git a/resources/views/inv-orders/view.blade.php b/resources/views/inv-orders/view.blade.php
+index 0ca5e58..027b998 100644
+--- a/resources/views/inv-orders/view.blade.php
++++ b/resources/views/inv-orders/view.blade.php
+@@ -1,4 +1,4 @@
+-@extends('layouts.app')
++﻿@extends('layouts.app')
+ 
+ @section('cssPlugins')
+ @endsection
+@@ -18,7 +18,7 @@
+             <td id="code"></td>
+           </tr>
+           <tr>
+-            <th>Prénom</th>
++            <th>PrÃ©nom</th>
+             <td id="clientFirstName"></td>
+           </tr>
+           <tr>
+@@ -40,10 +40,10 @@
+           <tr>
+             <th>Code</th>
+             <th>Nom</th>
+-            <th>Catégorie</th>
++            <th>CatÃ©gorie</th>
+             <th>Prix unitaire</th>
+-            <th>Quantité commandée</th>
+-            <th>Coût total</th>
++            <th>QuantitÃ© commandÃ©e</th>
++            <th>CoÃ»t total</th>
+           </tr>
+         </thead>
+         <tbody>
+@@ -59,9 +59,13 @@
+     </div>
+     <div class="card-body">
+       <button type="button" class="btn btn-lg btn-outline-primary" id="edit"><i class="fas me-2 fa-pen"></i>
+-        Éditer</button>
++        Ã‰diter</button>
+       <button type="button" class="btn btn-lg btn-danger" id="delete"><i class="fas me-2 fa-trash"></i>
+         Supprimer</button>
++      <button type="button" class="btn btn-lg btn-outline-success ms-2" id="approvePaid"><i class="fas me-2 fa-check"></i>
++        Valider (payée)</button>
++      <button type="button" class="btn btn-lg btn-outline-secondary ms-2" id="approveUnpaid"><i class="fas me-2 fa-check"></i>
++        Valider (non payée)</button>
+     </div>
+   </div>
+ 
+diff --git a/resources/views/operations/create.blade.php b/resources/views/operations/create.blade.php
+index 811810a..718ecf9 100644
+--- a/resources/views/operations/create.blade.php
++++ b/resources/views/operations/create.blade.php
+@@ -11,6 +11,11 @@
+     </div>
+     <div class="card-body">
+       <form id="form" class="row" novalidate>
++        <div class="col-12 col-lg-6 mb-3" id="partnerSelectBlock" style="display:none;">
++          <label for="partnerId" class="form-label">Partenaire (optionnel)</label>
++          <select id="partnerId" class="form-select" style="width: 100%"></select>
++          <div class="form-text">Laissez vide pour créer pour un client manuel.</div>
++        </div>
+         <div class="text-center" id="blockSubmit">
+           <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Sauvegarder</button>
+         </div>
+diff --git a/resources/views/partials/product-adding.blade.php b/resources/views/partials/product-adding.blade.php
+index 9b4d189..8d4461c 100644
+--- a/resources/views/partials/product-adding.blade.php
++++ b/resources/views/partials/product-adding.blade.php
+@@ -1,4 +1,4 @@
+-<h5 class="my-3">List des produits</h5>
++﻿<h5 class="my-3">List des produits</h5>
+ 
+ <div class="col-12 col-lg-6 mb-3">
+   <label for="invProductId" class="form-label">Produit</label>
+@@ -7,8 +7,8 @@
+ </div>
+ 
+ <div class="col-12 col-lg-6 mb-3">
+-  <label for="quantity" class="form-label">Quantité</label>
+-  <input type="number" class="form-control" id="quantity" placeholder="Quantité" required>
++  <label for="quantity" class="form-label">QuantitÃ©</label>
++  <input type="number" class="form-control" id="quantity" placeholder="QuantitÃ©" required>
+   <div class="invalid-feedback"></div>
+ </div>
+ 
+@@ -22,10 +22,10 @@
+     <tr>
+       <th>Code</th>
+       <th>Nom</th>
+-      <th>Catégorie</th>
++      <th>CatÃ©gorie</th>
+       <th>Prix unitaire</th>
+-      <th>Quantité</th>
+-      <th>Coût total</th>
++      <th>QuantitÃ©</th>
++      <th>CoÃ»t total</th>
+       <th>Actions</th>
+     </tr>
+   </thead>
+diff --git a/routes/api.php b/routes/api.php
+index a3a546f..b2d0993 100644
+--- a/routes/api.php
++++ b/routes/api.php
+@@ -66,6 +66,12 @@
+             Route::get('dashboard-data', 'dashboardData')->role('admin');
+         });
+ 
++        // Solde collaborateurs (recharge/débit par admin)
++        Route::prefix('collab-balances')->controller(\App\Http\Controllers\Admin\CollaboratorBalanceController::class)->group(function () {
++            Route::get('{collab}/balance', 'showByCollab')->role('admin');
++            Route::post('{collab}/balance/adjust', 'adjustByCollab')->role('admin');
++        });
++
+         Route::prefix('collabs')->controller(CollabController::class)->group(function () {
+             Route::get('dashboard-data', 'dashboardData')->role('collab');
+             Route::get('fetch/{id}', 'fetch')->can('view collab');
+@@ -112,9 +118,15 @@
+ 
+         Route::prefix('operations/{opType}')->controller(OperationController::class)->group(function () {
+             Route::get('fetch/{id}', 'fetch')->can('view operation');
+-            Route::post('store', 'store')->can('add operation');
++            // Autoriser explicitement admin/collab/partner à créer
++            Route::post('store', 'store')->role('admin|collab|partner');
++            // Création sans sélection de partenaire: admin et collab, avec fallback interne
++            Route::post('store-without-partner', 'storeWithoutPartner')->role('admin|collab');
++            // Création pour un partenaire: admin et collab
++            Route::post('store-for-partner/{partner}', 'storeForPartner')->role('admin|collab');
+             Route::post('update/{id}', 'update')->can('edit operation');
+-            Route::post('approve/{id}', 'approve')->can('review operation');
++            // Validation par collab, reviewer et admin
++            Route::post('approve/{id}', 'approve')->role('admin|collab|reviewer');
+             Route::post('reject/{id}', 'reject')->can('review operation');
+             Route::post('delete/{id}', 'destroy')->can('delete operation');
+             Route::post('list', 'list')->can('view operation');
+@@ -177,6 +189,7 @@
+             Route::get('fetch-all', 'fetchAll')->can('view inv_order');
+             Route::post('store', 'store')->can('add inv_order');
+             Route::post('update/{id}', 'update')->can('edit inv_order');
++            Route::post('approve/{id}', 'approve')->can('edit inv_order');
+             Route::post('delete/{id}', 'destroy')->can('delete inv_order');
+             Route::post('list', 'list')->can('view inv_order');
+             Route::post('products-list', 'productsList')->can('view inv_order');
+@@ -321,12 +334,24 @@
+ 
+ 
+ 
++// Demandes d'annulation d'opérations (unique bloc)
+ Route::prefix('v1/operations-cancel')->middleware('auth:sanctum')->group(function () {
+-    Route::post('request/{operationId}', [OperationCancellationRequestController::class, 'requestCancellation']);
+-    Route::post('approve/{id}', [OperationCancellationRequestController::class, 'approveCancellation']);
+-    Route::get('list', [OperationCancellationRequestController::class, 'listRequests']);
++    Route::post('request/{operationId}', [OperationCancellationRequestController::class, 'requestCancellation'])
++        ->name('api.operations-cancel.request');
++    Route::post('approve/{requestId}', [OperationCancellationRequestController::class, 'approveCancellation'])
++        ->name('api.operations-cancel.approve');
++    Route::post('reject/{requestId}', [OperationCancellationRequestController::class, 'rejectCancellation'])
++        ->name('api.operations-cancel.reject');
++    Route::get('list', [OperationCancellationRequestController::class, 'listRequests'])
++        ->name('api.operations-cancel.list');
+ });
+ 
++// Alias pour compatibilité avec l'ancien front: POST /api/collab/operations-cancel
++Route::middleware('auth:sanctum')->post('collab/operations-cancel', [
++    OperationCancellationRequestController::class,
++    'requestFromBody',
++])->name('api.collab.operations-cancel.request');
++
+ 
+ 
+ 
+@@ -379,15 +404,4 @@
+ 
+ 
+ 
+-// pour les demandes d'annulation
+-Route::prefix('v1/operations-cancel')->middleware('auth:sanctum')->group(function () {
+-    Route::post('request/{operationId}', [OperationCancellationRequestController::class, 'requestCancellation'])
+-        ->name('api.operations-cancel.request');
+-    Route::post('approve/{requestId}', [OperationCancellationRequestController::class, 'approveCancellation'])
+-        ->name('api.operations-cancel.approve');
+-    Route::post('reject/{requestId}', [OperationCancellationRequestController::class, 'rejectCancellation'])
+-        ->name('api.operations-cancel.reject');
+-    Route::get('list', [OperationCancellationRequestController::class, 'listRequests'])
+-        ->name('api.operations-cancel.list');
+-});
+-
++// (Anciennes duplications nettoyées)

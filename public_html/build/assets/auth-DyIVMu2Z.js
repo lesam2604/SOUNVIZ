@@ -1,0 +1,1 @@
+(async function(){try{await(localStorage.getItem("token")?getUser():Promise.reject(null)),location.replace("/dashboard")}catch(e){e&&(console.log(e),localStorage.clear(),deleteCookie("user-type")),$(async()=>{try{await(typeof render=="function"?render():Promise.resolve()),hidePreloader()}catch({error:o}){console.log(o)}})}})();

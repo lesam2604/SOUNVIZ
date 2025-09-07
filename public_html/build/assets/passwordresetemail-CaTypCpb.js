@@ -1,0 +1,1 @@
+window.render=async function(){$("#form").submit(async function(s){s.preventDefault(),swalLoading();try{let{data:e}=await ajax({url:`${API_BASEURL}/send-password-reset-code`,type:"POST",data:{email:$("#email").val()}});Swal.fire(e.message,"","success")}catch({error:e}){console.log(e),e.responseJSON.errors&&Swal.close(),showErrors(e.responseJSON)}})};

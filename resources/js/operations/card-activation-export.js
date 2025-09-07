@@ -1,0 +1,30 @@
+async function exportPdf() {
+  swalLoading();
+
+  await downloadFile(
+    `${API_BASEURL}/operations/card-activation-export-pdf`,
+    'GET',
+    {
+      partner_id: $('#partnerId').val() ?? '',
+      uba_type: $('#ubaType').val(),
+      from_date: $('#fromDate').val(),
+      to_date: $('#toDate').val(),
+    }
+  );
+
+  Swal.close();
+}
+
+window.render = async function () {
+  setTitle(`Exportation d'activation de cartes`);
+
+  await Promise.all([
+    populatePartners('#partnerId'),
+    populateUbaTypes('#ubaType'),
+  ]);
+
+  $('#form').submit(function (e) {
+    e.preventDefault();
+    exportPdf();
+  });
+};
